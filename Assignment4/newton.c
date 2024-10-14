@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <threads.h>
+#include <stdint.h>
 
 typedef struct {
   int val;
@@ -30,7 +31,28 @@ typedef struct {
   mtx_t *mtx;
   cnd_t *cnd;
   int_padded *status;
+  FILE *attractors_file;
+  FILE *convergence_file;
+  int d;
 } thrd_info_check_t;
+
+
+uint8_t ** attractors;
+uint8_t ** convergences;
+
+
+int colors[10][3] = {
+    {249, 65, 68},    // From top row
+    {144, 190, 109},  // From bottom row
+    {243, 114, 44},   // From top row
+    {67, 170, 139},   // From bottom row
+    {248, 150, 30},   // From top row
+    {77, 144, 142},   // From bottom row
+    {249, 132, 74},   // From top row
+    {87, 117, 144},   // From bottom row
+    {249, 199, 79},   // From top row
+    {39, 125, 161}    // From bottom row
+};
 
 
 
@@ -50,15 +72,31 @@ main_thrd(
   cnd_t *cnd = thrd_info->cnd;
   int_padded *status = thrd_info->status;
 
+  uint8_t * attractor;
+  uint8_t * convergence;
+
+  printf("Thread %d: Starting computation at index %d with step %d and size %d\n", tx, ib, istep, sz);
   for ( int ix = ib; ix < sz; ix += istep ) {
     const float *vix = v[ix];
     // We allocate the rows of the result before computing, and free them in another thread.
     float *wix = (float*) malloc(sz*sizeof(float));
 
+    attractor = (uint8_t*) malloc(sz*sizeof(uint8_t));
+    convergence = (uint8_t*) malloc(sz*sizeof(uint8_t));
+
+
+    for ( size_t cx = 0; cx < sz; ++cx ) {
+      attractor[cx] = 0;
+      convergence[cx] = 0;
+    }
+
     for ( int jx = 0; jx < sz; ++jx )
       wix[jx] = sqrtf(vix[jx]);
 
+
     mtx_lock(mtx);
+    attractors[ix] = attractor;
+    convergences[ix] = convergence;
     w[ix] = wix;
     status[tx].val = ix + istep;
     mtx_unlock(mtx);
@@ -114,7 +152,7 @@ main_thrd_check(
       // specified time to the computation threads.
     }
 
-    fprintf(stderr, "checking until %i\n", ibnd);
+    fprintf(stderr, "checking from index %i until %i\n", ix, ibnd);
 
     // We do not initialize ix in this loop, but in the outer one.
     for ( ; ix < ibnd; ++ix ) {
@@ -138,12 +176,90 @@ main_thrd_check(
   return 0;
 }
 
+int
+main_thrd_write(
+    void *args
+    )
+{
+  const thrd_info_check_t *thrd_info = (thrd_info_check_t*) args;
+  const float **v = thrd_info->v;
+  float **w = thrd_info->w;
+  const int sz = thrd_info->sz;
+  const int nthrds = thrd_info->nthrds;
+  mtx_t *mtx = thrd_info->mtx;
+  cnd_t *cnd = thrd_info->cnd;
+  int_padded *status = thrd_info->status;
+  FILE *attractors_file = thrd_info->attractors_file;
+  FILE *convergence_file = thrd_info->convergence_file;
+  const int d = thrd_info->d;
+
+  // We do not increment ix in this loop, but in the inner one.
+  for ( int ix = 0, ibnd; ix < sz; ) {
+
+    // If no new lines are available, we wait.
+    for ( mtx_lock(mtx); ; ) {
+      // We extract the minimum of all status variables.
+      ibnd = sz;
+      for ( int tx = 0; tx < nthrds; ++tx )
+        if ( ibnd > status[tx].val )
+          ibnd = status[tx].val;
+
+      if ( ibnd <= ix )
+        // Until here the mutex protects status updates, so that if further
+        // updates are pending in blocked threads, there will be a subsequent
+        // signal.
+        cnd_wait(cnd,mtx);
+      else {
+        mtx_unlock(mtx);
+        break;
+      }
+    }
+
+    fprintf(stderr, "writing from index %i until %i\n", ix, ibnd);
+
+    // We do not initialize ix in this loop, but in the outer one.
+    for ( ; ix < ibnd; ++ix ) {
+      for (int jx = 0; jx < sz; ++jx) {
+        // Write attractor data
+        int color_index = (int)(fabs(sin(w[ix][jx])) * 9); // Ensure index is within bounds
+        
+        uint8_t attractor_data[3] = {
+            (uint8_t)(colors[color_index][0]),
+            (uint8_t)(colors[color_index][1]),
+            (uint8_t)(colors[color_index][2])
+        };
+        printf("attractor_data: %d %d %d\n", attractor_data[0], attractor_data[1], attractor_data[2]);
+
+        char buffer[50]; // Buffer to hold the formatted string
+        sprintf(buffer, "%d %d %d ", attractor_data[0], attractor_data[1], attractor_data[2]);
+        fwrite(buffer, sizeof(char), strlen(buffer), attractors_file);
+
+        // Write convergence data
+        int conv = (int)(255 * (1 - exp(-fabs(v[ix][jx] - w[ix][jx]))));
+        uint8_t convergence_data[3] = { (uint8_t)conv, (uint8_t)conv, (uint8_t)conv };
+        printf("convergence_data: %d %d %d ", convergence_data[0], convergence_data[1], convergence_data[2]);
+
+        
+        sprintf(buffer, "%d %d %d ", convergence_data[0], convergence_data[1], convergence_data[2]);
+        fwrite(buffer, sizeof(char), strlen(buffer), convergence_file);
+      }
+      fputc('\n', attractors_file);
+      fputc('\n', convergence_file);
+    }
+  }
+
+  return 0;
+}
+
 
 
 
 // Global variables for number of threads and size of the output picture (rows and columns)
 int nthrds;
 int sz;
+
+
+
 
 int main(int argc, char *argv[]) {
     int d;  // Exponent of x in the polynomial x^d - 1
@@ -171,11 +287,17 @@ int main(int argc, char *argv[]) {
 
     // Here would be the code to start the Newton iteration using the provided arguments
 	
-    float **v = (float**) malloc(sz*sizeof(float*));
+  float **v = (float**) malloc(sz*sizeof(float*));
   float **w = (float**) malloc(sz*sizeof(float*));
   float *ventries = (float*) malloc(sz*sz*sizeof(float));
   // The entries of w will be allocated in the computation threads are freed in
   // the check thread.
+
+  FILE *attractors_file = fopen("newton_attractors_xd.ppm", "w");
+  FILE *convergence_file = fopen("newton_convergence_xd.ppm", "w");
+
+  fprintf(attractors_file, "P3\n%d %d\n%d\n", sz, sz, 255);
+  fprintf(convergence_file, "P3\n%d %d\n255\n", sz, sz);
 
   for ( int ix = 0, jx = 0; ix < sz; ++ix, jx += sz )
     v[ix] = ventries + jx;
@@ -183,11 +305,11 @@ int main(int argc, char *argv[]) {
   for ( int ix = 0; ix < sz*sz; ++ix )
     ventries[ix] = ix;
 
-  const int nthrds = 8;
   thrd_t thrds[nthrds];
   thrd_info_t thrds_info[nthrds];
 
   thrd_t thrd_check;
+  thrd_t thrd_write;
   thrd_info_check_t thrd_info_check;
   
   mtx_t mtx;
@@ -197,6 +319,9 @@ int main(int argc, char *argv[]) {
   cnd_init(&cnd);
 
   int_padded status[nthrds];
+
+  attractors = (uint8_t**) malloc(sz*sizeof(uint8_t*));
+  convergences = (uint8_t**) malloc(sz*sizeof(uint8_t*));
 
   for ( int tx = 0; tx < nthrds; ++tx ) {
     thrds_info[tx].v = (const float**) v;
@@ -225,13 +350,22 @@ int main(int argc, char *argv[]) {
     thrd_info_check.nthrds = nthrds;
     thrd_info_check.mtx = &mtx;
     thrd_info_check.cnd = &cnd;
-    // It is important that we have initialize status in the previous for-loop,
-    // since it will be consumed by the check threads.
     thrd_info_check.status = status;
+    thrd_info_check.attractors_file = attractors_file;
+    thrd_info_check.convergence_file = convergence_file;
+    thrd_info_check.d = d;
 
     int r = thrd_create(&thrd_check, main_thrd_check, (void*) (&thrd_info_check));
     if ( r != thrd_success ) {
-      fprintf(stderr, "failed to create thread\n");
+      fprintf(stderr, "failed to create check thread\n");
+      exit(1);
+    }
+  }
+
+  {
+    int r = thrd_create(&thrd_write, main_thrd_write, (void*) (&thrd_info_check));
+    if ( r != thrd_success ) {
+      fprintf(stderr, "failed to create write thread\n");
       exit(1);
     }
   }
@@ -239,11 +373,15 @@ int main(int argc, char *argv[]) {
   {
     int r;
     thrd_join(thrd_check, &r);
+    thrd_join(thrd_write, &r);
   }
 
   free(ventries);
   free(v);
   free(w);
+
+  fclose(attractors_file);
+  fclose(convergence_file);
 
   mtx_destroy(&mtx);
   cnd_destroy(&cnd);
@@ -251,3 +389,4 @@ int main(int argc, char *argv[]) {
   return 0;
 
 }
+
