@@ -4,6 +4,15 @@
 #include <string.h>
 #include <threads.h>
 #include <stdint.h>
+#include <complex.h>
+
+#define MAX_DEGREE 9
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+complex double roots[MAX_DEGREE][MAX_DEGREE];
 
 typedef struct {
   int val;
@@ -37,22 +46,82 @@ typedef struct {
 } thrd_info_check_t;
 
 
+float degree_1(float x) {
+
+  return 1.0;
+}
+
+float degree_2(float x) {
+
+  return (x + (1 / x)) / 2.0;
+}
+
+float degree_3(float x) {
+
+  return (2 * x + (1 / x * x)) / 3.0;
+}
+
+float degree_4(float x) {
+
+  return (3 * x + (1 / x * x * x)) / 4.0;
+}
+
+float degree_5(float x) {
+
+  return (4 * x + (1 / x * x * x * x)) / 5.0;
+}
+
+float degree_6(float x) {
+
+  return (5 * x + (1 / x * x * x * x * x)) / 6.0;
+}
+
+float degree_7(float x) {
+
+  return (6 * x + (1 / x * x * x * x * x * x)) / 7.0;
+}
+
+float degree_8(float x) {
+
+  return (7 * x + (1 / x * x * x * x * x * x * x)) / 8.0;
+}
+
+float degree_9(float x) {
+
+  return (8 * x + (1 / x * x * x * x * x * x * x * x)) / 9.0;
+}
+
+float degree_10(float x) {
+
+  return (9 * x + (1 / x * x * x * x * x * x * x * x * x)) / 10.0;
+}
+
+
+
+
+
+
 uint8_t ** attractors;
 uint8_t ** convergences;
 
 
-int colors[10][3] = {
-    {249, 65, 68},    // From top row
-    {144, 190, 109},  // From bottom row
-    {243, 114, 44},   // From top row
-    {67, 170, 139},   // From bottom row
-    {248, 150, 30},   // From top row
-    {77, 144, 142},   // From bottom row
-    {249, 132, 74},   // From top row
-    {87, 117, 144},   // From bottom row
-    {249, 199, 79},   // From top row
-    {39, 125, 161}    // From bottom row
+
+
+const char *colors[10] = {
+    "249 65 68 ",    // From top row
+    "144 190 109 ",  // From bottom row
+    "243 114 44 ",   // From top row
+    "67 170 139 ",   // From bottom row
+    "248 150 30 ",   // From top row
+    "77 144 142 ",   // From bottom row
+    "249 132 74 ",   // From top row
+    "87 117 144 ",   // From bottom row
+    "249 199 79 ",   // From top row
+    "39 125 161 "    // From bottom row
 };
+
+
+
 
 
 
@@ -110,71 +179,6 @@ main_thrd(
   return 0;
 }
 
-int
-main_thrd_check(
-    void *args
-    )
-{
-  const thrd_info_check_t *thrd_info = (thrd_info_check_t*) args;
-  const float **v = thrd_info->v;
-  float **w = thrd_info->w;
-  const int sz = thrd_info->sz;
-  const int nthrds = thrd_info->nthrds;
-  mtx_t *mtx = thrd_info->mtx;
-  cnd_t *cnd = thrd_info->cnd;
-  int_padded *status = thrd_info->status;
-
-  const float eps = 1e-1;
-
-  // We do not increment ix in this loop, but in the inner one.
-  for ( int ix = 0, ibnd; ix < sz; ) {
-
-    // If no new lines are available, we wait.
-    for ( mtx_lock(mtx); ; ) {
-      // We extract the minimum of all status variables.
-      ibnd = sz;
-      for ( int tx = 0; tx < nthrds; ++tx )
-        if ( ibnd > status[tx].val )
-          ibnd = status[tx].val;
-
-      if ( ibnd <= ix )
-        // Until here the mutex protects status updates, so that if further
-        // updates are pending in blocked threads, there will be a subsequent
-        // signal.
-        cnd_wait(cnd,mtx);
-      else {
-        mtx_unlock(mtx);
-        break;
-      }
-
-      // Instead of employing a conditional variable, we could also invoke
-      // thrd_yield or thrd_sleep in order to yield to other threads or grant a
-      // specified time to the computation threads.
-    }
-
-    fprintf(stderr, "checking from index %i until %i\n", ix, ibnd);
-
-    // We do not initialize ix in this loop, but in the outer one.
-    for ( ; ix < ibnd; ++ix ) {
-      // We only check the last element in w, since we want to illustrate the
-      // situation where the check thread completes fast than the computaton
-      // threads.
-      int jx = sz-1;
-      float diff = v[ix][jx] - w[ix][jx] * w[ix][jx];
-      if ( diff < -eps || diff > eps ) {
-        fprintf(stderr, "incorrect compuation at %i %i: %f %f %f\n",
-            ix, jx, diff, v[ix][jx], w[ix][jx]);
-        // This exists the whole program, including all other threads.
-        exit(1);
-      }
-
-      // We free the component of w, since it will never be used again.
-      free(w[ix]);
-    }
-  }
-
-  return 0;
-}
 
 int
 main_thrd_write(
@@ -194,8 +198,9 @@ main_thrd_write(
   const int d = thrd_info->d;
 
   // We do not increment ix in this loop, but in the inner one.
+  const float eps = 1e-1;
   for ( int ix = 0, ibnd; ix < sz; ) {
-
+    
     // If no new lines are available, we wait.
     for ( mtx_lock(mtx); ; ) {
       // We extract the minimum of all status variables.
@@ -223,25 +228,15 @@ main_thrd_write(
         // Write attractor data
         int color_index = (int)(fabs(sin(w[ix][jx])) * 9); // Ensure index is within bounds
         
-        uint8_t attractor_data[3] = {
-            (uint8_t)(colors[color_index][0]),
-            (uint8_t)(colors[color_index][1]),
-            (uint8_t)(colors[color_index][2])
-        };
-        printf("attractor_data: %d %d %d\n", attractor_data[0], attractor_data[1], attractor_data[2]);
-
-        char buffer[50]; // Buffer to hold the formatted string
-        sprintf(buffer, "%d %d %d ", attractor_data[0], attractor_data[1], attractor_data[2]);
-        fwrite(buffer, sizeof(char), strlen(buffer), attractors_file);
+        fwrite(colors[color_index], sizeof(char), strlen(colors[color_index]), attractors_file);
 
         // Write convergence data
         int conv = (int)(255 * (1 - exp(-fabs(v[ix][jx] - w[ix][jx]))));
         uint8_t convergence_data[3] = { (uint8_t)conv, (uint8_t)conv, (uint8_t)conv };
-        printf("convergence_data: %d %d %d ", convergence_data[0], convergence_data[1], convergence_data[2]);
+        // printf("convergence_data: %d %d %d ", convergence_data[0], convergence_data[1], convergence_data[2]);
 
         
-        sprintf(buffer, "%d %d %d ", convergence_data[0], convergence_data[1], convergence_data[2]);
-        fwrite(buffer, sizeof(char), strlen(buffer), convergence_file);
+        fwrite(colors[color_index], sizeof(char), strlen(colors[color_index]), convergence_file);
       }
       fputc('\n', attractors_file);
       fputc('\n', convergence_file);
@@ -249,6 +244,21 @@ main_thrd_write(
   }
 
   return 0;
+}
+
+
+
+
+void initialize_roots() {
+    for (int d = 1; d <= MAX_DEGREE; d++) {
+        printf("Roots for x^%d - 1:\n", d);
+        for (int k = 0; k < d; k++) {
+            roots[d-1][k] = cos(2 * M_PI * k / d) + I * sin(2 * M_PI * k / d);
+            // Print each root
+            printf("Root %d: %.6f + %.6fi\n", k, creal(roots[d-1][k]), cimag(roots[d-1][k]));
+        }
+        printf("\n");
+    }
 }
 
 
@@ -286,7 +296,33 @@ int main(int argc, char *argv[]) {
     printf("Polynomial exponent: %d (for x^%d - 1)\n", d, d);
 
     // Here would be the code to start the Newton iteration using the provided arguments
-	
+	float (*handle_degree)(float);
+
+  switch (d) {
+    case 1:
+         handle_degree = degree_1;
+    case 2:
+         handle_degree = degree_2;
+    case 3:
+         handle_degree = degree_3;
+    case 4:
+         handle_degree = degree_4;
+    case 5:
+         handle_degree = degree_5;
+    case 6:
+         handle_degree = degree_6;
+    case 7:
+         handle_degree = degree_7;
+    case 8:
+         handle_degree = degree_8;
+    case 9:
+         handle_degree = degree_9;
+    case 10:
+         handle_degree = degree_10;
+    default:
+        handle_degree = NULL;
+  }
+
   float **v = (float**) malloc(sz*sizeof(float*));
   float **w = (float**) malloc(sz*sizeof(float*));
   float *ventries = (float*) malloc(sz*sz*sizeof(float));
@@ -343,7 +379,9 @@ int main(int argc, char *argv[]) {
     thrd_detach(thrds[tx]);
   }
 
+
   {
+
     thrd_info_check.v = (const float**) v;
     thrd_info_check.w = w;
     thrd_info_check.sz = sz;
@@ -354,15 +392,6 @@ int main(int argc, char *argv[]) {
     thrd_info_check.attractors_file = attractors_file;
     thrd_info_check.convergence_file = convergence_file;
     thrd_info_check.d = d;
-
-    int r = thrd_create(&thrd_check, main_thrd_check, (void*) (&thrd_info_check));
-    if ( r != thrd_success ) {
-      fprintf(stderr, "failed to create check thread\n");
-      exit(1);
-    }
-  }
-
-  {
     int r = thrd_create(&thrd_write, main_thrd_write, (void*) (&thrd_info_check));
     if ( r != thrd_success ) {
       fprintf(stderr, "failed to create write thread\n");
@@ -372,7 +401,6 @@ int main(int argc, char *argv[]) {
 
   {
     int r;
-    thrd_join(thrd_check, &r);
     thrd_join(thrd_write, &r);
   }
 
