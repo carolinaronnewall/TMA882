@@ -151,7 +151,7 @@ main_thrd(
   mtx_t *mtx = thrd_info->mtx;
   cnd_t *cnd = thrd_info->cnd;
   int_padded *status = thrd_info->status;
-  complex float (*handle_degree)(complex float) = thrd_info->handle_degree;
+  // complex float (*handle_degree)(complex float) = thrd_info->handle_degree;
   for ( int ix = ib; ix < sz; ix += istep ) {
 
    uint8_t *attractor = (uint8_t*) malloc(sz*sizeof(uint8_t));
@@ -177,26 +177,28 @@ main_thrd(
         float norm_squared = creal(z) * creal(z) + cimag(z) * cimag(z);
 
         // check for lower bound of the absolute value of x
-        // if (norm_squared < 2e-3) {
+        if (norm_squared < 2e-3) {
 
-        //   attractor[cx] = d + 1;
-        //   convergence[cx] = conv;
-        //   break;
-        // }
+          attractor[cx] = d + 1;
+          convergence[cx] = conv;
+          break;
+        }
 
         if (norm_squared <= (1 + 2e-3) && norm_squared >= (1 - 2e-3)) {
           
         
          
           for (int root_index = 0; root_index < d; root_index++) {
-            complex float root = roots[d-1][root_index];
-            if (cabs(z - root) < 1e-3) {
-              attractor[cx] = root_index;
-              
-              convergence[cx] = conv;
-              break;
+              complex float root = roots[d - 1][root_index];
+              float dx = crealf(z) - crealf(root);
+              float dy = cimagf(z) - cimagf(root);
+              float distance_sq = dx * dx + dy * dy;
+              if (distance_sq < 1e-6f) { // (1e-3)^2
+                  attractor[cx] = root_index;
+                convergence[cx] = conv;
+                break;
+              }
             }
-          }
 
           if (attractor[cx] != 10) {
             break;
@@ -206,7 +208,41 @@ main_thrd(
           
         }
 
-        z = handle_degree(z);
+        switch (d) {
+          case 1:
+              z = 1.0f;
+              break;
+          case 2:
+              z = (z + (1.0f / z)) / 2.0f;
+              break;
+          case 3:
+              z = (2.0f * z + (1.0f / (z * z))) / 3.0f;
+              break;
+          case 4:
+              z = (3.0f * z + (1.0f / (z * z * z))) / 4.0f;
+              break;
+          case 5:
+              z = (4.0f * z + (1.0f / (z * z * z * z))) / 5.0f;
+              break;
+          case 6:
+              z = (5.0f * z + (1.0f / (z * z * z * z * z))) / 6.0f;
+              break;
+          case 7:
+              z = (6.0f * z + (1.0f / (z * z * z * z * z * z))) / 7.0f;
+              break;
+          case 8:
+              z = (7.0f * z + (1.0f / (z * z * z * z * z * z * z))) / 8.0f;
+              break;
+          case 9:
+              z = (8.0f * z + (1.0f / (z * z * z * z * z * z * z * z))) / 9.0f;
+              break;
+          case 10:
+              z = (9.0f * z + (1.0f / (z * z * z * z * z * z * z * z * z))) / 10.0f;
+              break;
+          default:
+              // Handle invalid degree; exit iteration
+              break;
+      }
 
       }
 
@@ -267,23 +303,26 @@ main_thrd_write(
 
 
     // We do not initialize ix in this loop, but in the outer one.
+    char attractor_buffer[sz * 16 + 1];
+    char convergence_buffer[sz * 16 + 1];
     for ( ; ix < ibnd; ++ix ) {
+      int attractor_pos = 0;
+      int convergence_pos = 0;
       for (int jx = 0; jx < sz; ++jx) {
         // Write attractor data
         uint8_t color_index = attractors[ix][jx];
-        
-
-        fwrite(colors[color_index], sizeof(char), strlen(colors[color_index]), attractors_file);
+        int len = snprintf(attractor_buffer + attractor_pos, 16, "%s", colors[color_index]);
+        attractor_pos += len;
 
         // Write convergence data
         int conv = convergences[ix][jx];
-
-        fwrite(grayscale[conv], sizeof(char), strlen(grayscale[conv]), convergence_file);
-        
-        
+        len = snprintf(convergence_buffer + convergence_pos, 16, "%s", grayscale[conv]);
+        convergence_pos += len;
       }
-      fputc('\n', attractors_file);
-      fputc('\n', convergence_file);
+      attractor_buffer[attractor_pos] = '\n';
+      convergence_buffer[convergence_pos] = '\n';
+      fwrite(attractor_buffer, sizeof(char), attractor_pos + 1, attractors_file);
+      fwrite(convergence_buffer, sizeof(char), convergence_pos + 1, convergence_file);
       free(attractors[ix]);
       free(convergences[ix]);
     }
@@ -297,11 +336,11 @@ main_thrd_write(
 
 void initialize_roots() {
     for (int dimension = 1; dimension <= MAX_DEGREE; dimension++) {
-        printf("Roots for x^%d - 1:\n", dimension);
+        // printf("Roots for x^%d - 1:\n", dimension);
         for (int k = 0; k < dimension; k++) {
             roots[dimension-1][k] = (float) cos(2 * M_PI * k / dimension) + I * sin(2 * M_PI * k / dimension);
             // Print each root
-            printf("Root %d: %.6f + %.6fi\n", k, creal(roots[dimension-1][k]), cimag(roots[dimension-1][k]));
+            // printf("Root %d: %.6f + %.6fi\n", k, creal(roots[dimension-1][k]), cimag(roots[dimension-1][k]));
         }
         printf("\n");
     }
@@ -336,43 +375,7 @@ int main(int argc, char *argv[]) {
     printf("Picture size: %d x %d\n", sz, sz);
     printf("Polynomial exponent: %d (for x^%d - 1)\n", d, d);
 
-    // Here would be the code to start the Newton iteration using the provided arguments
-	complex float (*handle_degree)(complex float);
-
-  switch (d) {
-    case 1:
-         handle_degree = degree_1;
-         break;
-    case 2:
-         handle_degree = degree_2;
-         break;
-    case 3:
-         handle_degree = degree_3;
-         break;
-    case 4:
-         handle_degree = degree_4;
-         break;
-    case 5:
-         handle_degree = degree_5;
-         break;
-    case 6:
-         handle_degree = degree_6;
-         break;
-    case 7:
-         handle_degree = degree_7;
-         break;
-    case 8:
-         handle_degree = degree_8;
-         break;
-    case 9:
-         handle_degree = degree_9;
-         break;
-    case 10:
-         handle_degree = degree_10;
-         break;
-    default:
-        handle_degree = NULL;
-  }
+ 
 
   // The entries of w will be allocated in the computation threads are freed in
   // the check thread.
@@ -415,7 +418,7 @@ int main(int argc, char *argv[]) {
     thrds_info[tx].mtx = &mtx;
     thrds_info[tx].cnd = &cnd;
     thrds_info[tx].status = status;
-    thrds_info[tx].handle_degree = handle_degree;
+    // thrds_info[tx].handle_degree = handle_degree;
     status[tx].val = 0;
 
     int r = thrd_create(thrds+tx, main_thrd, (void*) (thrds_info+tx));
