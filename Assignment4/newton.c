@@ -378,8 +378,12 @@ int main(int argc, char *argv[]) {
   // the check thread.
   initialize_roots();
   initialize_grayscale();
-  FILE *attractors_file = fopen("newton_attractors_xd.ppm", "w");
-  FILE *convergence_file = fopen("newton_convergence_xd.ppm", "w");
+  char filename_attractors[30];
+  char filename_convergence[30];
+  sprintf(filename_attractors, "newton_attractors_x%d.ppm", d);
+  sprintf(filename_convergence, "newton_convergence_x%d.ppm", d);
+  FILE *attractors_file = fopen(filename_attractors, "w");
+  FILE *convergence_file = fopen(filename_convergence, "w");
 
   fprintf(attractors_file, "P3\n%d %d\n%d\n", sz, sz, 255);
   fprintf(convergence_file, "P3\n%d %d\n255\n", sz, sz);
