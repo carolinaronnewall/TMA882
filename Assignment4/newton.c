@@ -124,7 +124,7 @@ const char *grayscale[128];
 
 void initialize_grayscale() {
     for (int i = 0; i < 128; i++) {
-        char *color = malloc(12); // Allocate memory for each color string
+        char *color = malloc(16); // Allocate memory for each color string
         if (color) {
             sprintf(color, "%d %d %d ", i * 2, i * 2, i * 2);
             grayscale[i] = color;
@@ -455,6 +455,9 @@ int main(int argc, char *argv[]) {
 
   fclose(attractors_file);
   fclose(convergence_file);
+  for (int i = 0; i < 128; i++) {
+    free((void*)grayscale[i]);
+  }
 
   mtx_destroy(&mtx);
   cnd_destroy(&cnd);
@@ -462,4 +465,5 @@ int main(int argc, char *argv[]) {
   return 0;
 
 }
+
 
