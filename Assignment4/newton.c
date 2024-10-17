@@ -118,7 +118,19 @@ const char *colors[11] = {
     "102 204 153 ",   // Light Sea Green
     "102 153 153 ",    // Light Slate Gray
     "255 0 0 ",        // Red
-    };
+};
+
+const char *grayscale[128];
+
+void initialize_grayscale() {
+    for (int i = 0; i < 128; i++) {
+        char *color = malloc(12); // Allocate memory for each color string
+        if (color) {
+            sprintf(color, "%d %d %d ", i * 2, i * 2, i * 2);
+            grayscale[i] = color;
+        }
+    }
+}
 
 
 
@@ -150,7 +162,7 @@ main_thrd(
     
     for ( size_t cx = 0; cx < sz; ++cx ) {
       attractor[cx] = 10; // last index in color array
-      convergence[cx] = 128;
+      convergence[cx] = 127;
       float real_part = -2.0f + (4.0f * (float)cx) / ((float)sz - 1);
       complex float z = real_part + imaginary_part * I;
 
@@ -265,10 +277,9 @@ main_thrd_write(
 
         // Write convergence data
         int conv = convergences[ix][jx];
-        uint8_t convergence_data[3] = { (uint8_t)conv, (uint8_t)conv, (uint8_t)conv };
-        // printf("convergence_data: %d %d %d ", convergence_data[0], convergence_data[1], convergence_data[2]);
 
-        fwrite(colors[color_index], sizeof(char), strlen(colors[color_index]), convergence_file);
+        fwrite(grayscale[conv], sizeof(char), strlen(grayscale[conv]), convergence_file);
+        
         
       }
       fputc('\n', attractors_file);
@@ -366,6 +377,7 @@ int main(int argc, char *argv[]) {
   // The entries of w will be allocated in the computation threads are freed in
   // the check thread.
   initialize_roots();
+  initialize_grayscale();
   FILE *attractors_file = fopen("newton_attractors_xd.ppm", "w");
   FILE *convergence_file = fopen("newton_convergence_xd.ppm", "w");
 
