@@ -7,12 +7,15 @@
 #include <complex.h>
 
 #define MAX_DEGREE 9
+#define MAX_ITERATIONS 128
+
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-complex double roots[MAX_DEGREE][MAX_DEGREE];
+complex float roots[MAX_DEGREE][MAX_DEGREE];
+int d;  
 
 typedef struct {
   int val;
@@ -21,8 +24,6 @@ typedef struct {
 
 
 typedef struct {
-  const float **v;
-  float **w;
   int ib;
   int istep;
   int sz;
@@ -30,11 +31,10 @@ typedef struct {
   mtx_t *mtx;
   cnd_t *cnd;
   int_padded *status;
+  complex float (*handle_degree)(complex float);
 } thrd_info_t;
 
 typedef struct {
-  const float **v;
-  float **w;
   int sz;
   int nthrds;
   mtx_t *mtx;
@@ -46,54 +46,54 @@ typedef struct {
 } thrd_info_check_t;
 
 
-float degree_1(float x) {
+complex float degree_1(complex float x) {
 
   return 1.0;
 }
 
-float degree_2(float x) {
+complex float degree_2(complex float x) {
 
   return (x + (1 / x)) / 2.0;
 }
 
-float degree_3(float x) {
-
-  return (2 * x + (1 / x * x)) / 3.0;
+complex float degree_3(complex float x) {
+  
+  return (2 * x + (1 / (x * x))) / 3.0;
 }
 
-float degree_4(float x) {
+complex float degree_4(complex float x) {
 
-  return (3 * x + (1 / x * x * x)) / 4.0;
+  return (3 * x + (1 / (x * x * x))) / 4.0;
 }
 
-float degree_5(float x) {
+complex float degree_5(complex float x) {
 
-  return (4 * x + (1 / x * x * x * x)) / 5.0;
+  return (4 * x + (1 / (x * x * x * x))) / 5.0;
 }
 
-float degree_6(float x) {
+complex float degree_6(complex float x) {
 
-  return (5 * x + (1 / x * x * x * x * x)) / 6.0;
+  return (5 * x + (1 / (x * x * x * x * x))) / 6.0;
 }
 
-float degree_7(float x) {
+complex float degree_7(complex float x) {
 
-  return (6 * x + (1 / x * x * x * x * x * x)) / 7.0;
+  return (6 * x + (1 / (x * x * x * x * x * x))) / 7.0;
 }
 
-float degree_8(float x) {
+complex float degree_8(complex float x) {
 
-  return (7 * x + (1 / x * x * x * x * x * x * x)) / 8.0;
+  return (7 * x + (1 / (x * x * x * x * x * x * x))) / 8.0; 
 }
 
-float degree_9(float x) {
+complex float degree_9(complex float x) {
 
-  return (8 * x + (1 / x * x * x * x * x * x * x * x)) / 9.0;
+  return (8 * x + (1 / (x * x * x * x * x * x * x * x))) / 9.0;
 }
 
-float degree_10(float x) {
+complex float degree_10(complex float x) {
 
-  return (9 * x + (1 / x * x * x * x * x * x * x * x * x)) / 10.0;
+  return (9 * x + (1 / (x * x * x * x * x * x * x * x * x))) / 10.0;
 }
 
 
@@ -106,19 +106,20 @@ uint8_t ** convergences;
 
 
 
+const char *colors[11] = {
+    "0 51 102 ",      // Dark Blue
+    "0 102 102 ",     // Teal
+    "0 153 153 ",     // Dark Cyan
+    "0 102 51 ",      // Dark Green
+    "0 153 51 ",      // Medium Green
+    "0 204 102 ",     // Green
+    "51 204 153 ",    // Medium Sea Green
+    "51 153 102 ",    // Olive Green
+    "102 204 153 ",   // Light Sea Green
+    "102 153 153 ",    // Light Slate Gray
+    "255 0 0 ",        // Red
+    };
 
-const char *colors[10] = {
-    "249 65 68 ",    // From top row
-    "144 190 109 ",  // From bottom row
-    "243 114 44 ",   // From top row
-    "67 170 139 ",   // From bottom row
-    "248 150 30 ",   // From top row
-    "77 144 142 ",   // From bottom row
-    "249 132 74 ",   // From top row
-    "87 117 144 ",   // From bottom row
-    "249 199 79 ",   // From top row
-    "39 125 161 "    // From bottom row
-};
 
 
 
@@ -131,8 +132,6 @@ main_thrd(
     )
 {
   const thrd_info_t *thrd_info = (thrd_info_t*) args;
-  const float **v = thrd_info->v;
-  float **w = thrd_info->w;
   const int ib = thrd_info->ib;
   const int istep = thrd_info->istep;
   const int sz = thrd_info->sz;
@@ -140,40 +139,76 @@ main_thrd(
   mtx_t *mtx = thrd_info->mtx;
   cnd_t *cnd = thrd_info->cnd;
   int_padded *status = thrd_info->status;
-
-  uint8_t * attractor;
-  uint8_t * convergence;
-
-  printf("Thread %d: Starting computation at index %d with step %d and size %d\n", tx, ib, istep, sz);
+  complex float (*handle_degree)(complex float) = thrd_info->handle_degree;
   for ( int ix = ib; ix < sz; ix += istep ) {
-    const float *vix = v[ix];
-    // We allocate the rows of the result before computing, and free them in another thread.
-    float *wix = (float*) malloc(sz*sizeof(float));
 
-    attractor = (uint8_t*) malloc(sz*sizeof(uint8_t));
-    convergence = (uint8_t*) malloc(sz*sizeof(uint8_t));
+   uint8_t *attractor = (uint8_t*) malloc(sz*sizeof(uint8_t));
+   uint8_t *convergence = (uint8_t*) malloc(sz*sizeof(uint8_t));
 
-
+    // Calculate the imaginary part of the complex plane, take the negative because we want to start at the top left corner
+    float imaginary_part = (-2.0f + (4.0f * (float)ix) / ((float)sz - 1)) * -1;
+    
     for ( size_t cx = 0; cx < sz; ++cx ) {
-      attractor[cx] = 0;
-      convergence[cx] = 0;
+      attractor[cx] = 10; // last index in color array
+      convergence[cx] = 128;
+      float real_part = -2.0f + (4.0f * (float)cx) / ((float)sz - 1);
+      complex float z = real_part + imaginary_part * I;
+
+      for (int conv = 0; conv < MAX_ITERATIONS; ++conv) {
+        if (fabs(creal(z)) > 1e10 || fabs(cimag(z)) > 1e10) {
+          attractor[cx] = 10; // last index in color array
+          convergence[cx] = conv;
+          break;
+        }
+
+        
+        float norm_squared = creal(z) * creal(z) + cimag(z) * cimag(z);
+
+        // check for lower bound of the absolute value of x
+        // if (norm_squared < 2e-3) {
+
+        //   attractor[cx] = d + 1;
+        //   convergence[cx] = conv;
+        //   break;
+        // }
+
+        if (norm_squared <= (1 + 2e-3) && norm_squared >= (1 - 2e-3)) {
+          
+        
+         
+          for (int root_index = 0; root_index < d; root_index++) {
+            complex float root = roots[d-1][root_index];
+            if (cabs(z - root) < 1e-3) {
+              attractor[cx] = root_index;
+              
+              convergence[cx] = conv;
+              break;
+            }
+          }
+
+          if (attractor[cx] != 10) {
+            break;
+          }
+
+          
+          
+        }
+
+        z = handle_degree(z);
+
+      }
+
+      
     }
-
-    for ( int jx = 0; jx < sz; ++jx )
-      wix[jx] = sqrtf(vix[jx]);
-
 
     mtx_lock(mtx);
     attractors[ix] = attractor;
     convergences[ix] = convergence;
-    w[ix] = wix;
     status[tx].val = ix + istep;
+
     mtx_unlock(mtx);
     cnd_signal(cnd);
 
-    // In order to illustrate thrd_sleep and to force more synchronization
-    // points, we sleep after each line for one micro seconds.
-    thrd_sleep(&(struct timespec){.tv_sec=0, .tv_nsec=1000}, NULL);
   }
 
   return 0;
@@ -186,8 +221,6 @@ main_thrd_write(
     )
 {
   const thrd_info_check_t *thrd_info = (thrd_info_check_t*) args;
-  const float **v = thrd_info->v;
-  float **w = thrd_info->w;
   const int sz = thrd_info->sz;
   const int nthrds = thrd_info->nthrds;
   mtx_t *mtx = thrd_info->mtx;
@@ -220,26 +253,28 @@ main_thrd_write(
       }
     }
 
-    fprintf(stderr, "writing from index %i until %i\n", ix, ibnd);
 
     // We do not initialize ix in this loop, but in the outer one.
     for ( ; ix < ibnd; ++ix ) {
       for (int jx = 0; jx < sz; ++jx) {
         // Write attractor data
-        int color_index = (int)(fabs(sin(w[ix][jx])) * 9); // Ensure index is within bounds
+        uint8_t color_index = attractors[ix][jx];
         
+
         fwrite(colors[color_index], sizeof(char), strlen(colors[color_index]), attractors_file);
 
         // Write convergence data
-        int conv = (int)(255 * (1 - exp(-fabs(v[ix][jx] - w[ix][jx]))));
+        int conv = convergences[ix][jx];
         uint8_t convergence_data[3] = { (uint8_t)conv, (uint8_t)conv, (uint8_t)conv };
         // printf("convergence_data: %d %d %d ", convergence_data[0], convergence_data[1], convergence_data[2]);
 
-        
         fwrite(colors[color_index], sizeof(char), strlen(colors[color_index]), convergence_file);
+        
       }
       fputc('\n', attractors_file);
       fputc('\n', convergence_file);
+      free(attractors[ix]);
+      free(convergences[ix]);
     }
   }
 
@@ -250,29 +285,24 @@ main_thrd_write(
 
 
 void initialize_roots() {
-    for (int d = 1; d <= MAX_DEGREE; d++) {
-        printf("Roots for x^%d - 1:\n", d);
-        for (int k = 0; k < d; k++) {
-            roots[d-1][k] = cos(2 * M_PI * k / d) + I * sin(2 * M_PI * k / d);
+    for (int dimension = 1; dimension <= MAX_DEGREE; dimension++) {
+        printf("Roots for x^%d - 1:\n", dimension);
+        for (int k = 0; k < dimension; k++) {
+            roots[dimension-1][k] = (float) cos(2 * M_PI * k / dimension) + I * sin(2 * M_PI * k / dimension);
             // Print each root
-            printf("Root %d: %.6f + %.6fi\n", k, creal(roots[d-1][k]), cimag(roots[d-1][k]));
+            printf("Root %d: %.6f + %.6fi\n", k, creal(roots[dimension-1][k]), cimag(roots[dimension-1][k]));
         }
         printf("\n");
     }
 }
-
-
-
 
 // Global variables for number of threads and size of the output picture (rows and columns)
 int nthrds;
 int sz;
 
 
-
-
 int main(int argc, char *argv[]) {
-    int d;  // Exponent of x in the polynomial x^d - 1
+    
 
     // Iterate through command-line arguments
     for (int ix = 1; ix < argc; ix++) {
@@ -296,50 +326,52 @@ int main(int argc, char *argv[]) {
     printf("Polynomial exponent: %d (for x^%d - 1)\n", d, d);
 
     // Here would be the code to start the Newton iteration using the provided arguments
-	float (*handle_degree)(float);
+	complex float (*handle_degree)(complex float);
 
   switch (d) {
     case 1:
          handle_degree = degree_1;
+         break;
     case 2:
          handle_degree = degree_2;
+         break;
     case 3:
          handle_degree = degree_3;
+         break;
     case 4:
          handle_degree = degree_4;
+         break;
     case 5:
          handle_degree = degree_5;
+         break;
     case 6:
          handle_degree = degree_6;
+         break;
     case 7:
          handle_degree = degree_7;
+         break;
     case 8:
          handle_degree = degree_8;
+         break;
     case 9:
          handle_degree = degree_9;
+         break;
     case 10:
          handle_degree = degree_10;
+         break;
     default:
         handle_degree = NULL;
   }
 
-  float **v = (float**) malloc(sz*sizeof(float*));
-  float **w = (float**) malloc(sz*sizeof(float*));
-  float *ventries = (float*) malloc(sz*sz*sizeof(float));
   // The entries of w will be allocated in the computation threads are freed in
   // the check thread.
-
+  initialize_roots();
   FILE *attractors_file = fopen("newton_attractors_xd.ppm", "w");
   FILE *convergence_file = fopen("newton_convergence_xd.ppm", "w");
 
   fprintf(attractors_file, "P3\n%d %d\n%d\n", sz, sz, 255);
   fprintf(convergence_file, "P3\n%d %d\n255\n", sz, sz);
 
-  for ( int ix = 0, jx = 0; ix < sz; ++ix, jx += sz )
-    v[ix] = ventries + jx;
-
-  for ( int ix = 0; ix < sz*sz; ++ix )
-    ventries[ix] = ix;
 
   thrd_t thrds[nthrds];
   thrd_info_t thrds_info[nthrds];
@@ -360,8 +392,6 @@ int main(int argc, char *argv[]) {
   convergences = (uint8_t**) malloc(sz*sizeof(uint8_t*));
 
   for ( int tx = 0; tx < nthrds; ++tx ) {
-    thrds_info[tx].v = (const float**) v;
-    thrds_info[tx].w = w;
     thrds_info[tx].ib = tx;
     thrds_info[tx].istep = nthrds;
     thrds_info[tx].sz = sz;
@@ -369,7 +399,8 @@ int main(int argc, char *argv[]) {
     thrds_info[tx].mtx = &mtx;
     thrds_info[tx].cnd = &cnd;
     thrds_info[tx].status = status;
-    status[tx].val = -1;
+    thrds_info[tx].handle_degree = handle_degree;
+    status[tx].val = 0;
 
     int r = thrd_create(thrds+tx, main_thrd, (void*) (thrds_info+tx));
     if ( r != thrd_success ) {
@@ -382,8 +413,6 @@ int main(int argc, char *argv[]) {
 
   {
 
-    thrd_info_check.v = (const float**) v;
-    thrd_info_check.w = w;
     thrd_info_check.sz = sz;
     thrd_info_check.nthrds = nthrds;
     thrd_info_check.mtx = &mtx;
@@ -404,9 +433,9 @@ int main(int argc, char *argv[]) {
     thrd_join(thrd_write, &r);
   }
 
-  free(ventries);
-  free(v);
-  free(w);
+
+  free(attractors);
+  free(convergences);
 
   fclose(attractors_file);
   fclose(convergence_file);
