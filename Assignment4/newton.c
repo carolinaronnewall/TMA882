@@ -46,61 +46,6 @@ typedef struct {
 } thrd_info_check_t;
 
 
-complex float degree_1(complex float x) {
-
-  return 1.0;
-}
-
-complex float degree_2(complex float x) {
-
-  return (x + (1 / x)) / 2.0;
-}
-
-complex float degree_3(complex float x) {
-  
-  return (2 * x + (1 / (x * x))) / 3.0;
-}
-
-complex float degree_4(complex float x) {
-
-  return (3 * x + (1 / (x * x * x))) / 4.0;
-}
-
-complex float degree_5(complex float x) {
-
-  return (4 * x + (1 / (x * x * x * x))) / 5.0;
-}
-
-complex float degree_6(complex float x) {
-
-  return (5 * x + (1 / (x * x * x * x * x))) / 6.0;
-}
-
-complex float degree_7(complex float x) {
-
-  return (6 * x + (1 / (x * x * x * x * x * x))) / 7.0;
-}
-
-complex float degree_8(complex float x) {
-
-  return (7 * x + (1 / (x * x * x * x * x * x * x))) / 8.0; 
-}
-
-complex float degree_9(complex float x) {
-
-  return (8 * x + (1 / (x * x * x * x * x * x * x * x))) / 9.0;
-}
-
-complex float degree_10(complex float x) {
-
-  return (9 * x + (1 / (x * x * x * x * x * x * x * x * x))) / 10.0;
-}
-
-
-
-
-
-
 uint8_t ** attractors;
 uint8_t ** convergences;
 
@@ -133,11 +78,6 @@ void initialize_grayscale() {
 }
 
 
-
-
-
-
-
 int
 main_thrd(
     void *args
@@ -167,7 +107,7 @@ main_thrd(
       complex float z = real_part + imaginary_part * I;
 
       for (int conv = 0; conv < MAX_ITERATIONS; ++conv) {
-        if (fabs(creal(z)) > 1e10 || fabs(cimag(z)) > 1e10) {
+        if (fabs(creal(z)) > 1e5 || fabs(cimag(z)) > 1e5) {
           attractor[cx] = 10; // last index in color array
           convergence[cx] = conv;
           break;
@@ -177,14 +117,11 @@ main_thrd(
         float norm_squared = creal(z) * creal(z) + cimag(z) * cimag(z);
 
         // check for lower bound of the absolute value of x
-        if (norm_squared < 2e-3) {
-
-          attractor[cx] = d + 1;
-          convergence[cx] = conv;
+        if (norm_squared < 1e-6) {
           break;
         }
 
-        if (norm_squared <= (1 + 2e-3) && norm_squared >= (1 - 2e-3)) {
+        if (norm_squared <= (1 + 2e-6) && norm_squared >= (1 - 2e-6)) {
           
         
          
@@ -193,8 +130,8 @@ main_thrd(
               float dx = crealf(z) - crealf(root);
               float dy = cimagf(z) - cimagf(root);
               float distance_sq = dx * dx + dy * dy;
-              if (distance_sq < 1e-6f) { // (1e-3)^2
-                  attractor[cx] = root_index;
+              if (distance_sq < 1e-6) { // (1e-3)^2
+                attractor[cx] = root_index;
                 convergence[cx] = conv;
                 break;
               }
@@ -303,26 +240,23 @@ main_thrd_write(
 
 
     // We do not initialize ix in this loop, but in the outer one.
-    char attractor_buffer[sz * 16 + 1];
-    char convergence_buffer[sz * 16 + 1];
     for ( ; ix < ibnd; ++ix ) {
-      int attractor_pos = 0;
-      int convergence_pos = 0;
       for (int jx = 0; jx < sz; ++jx) {
         // Write attractor data
         uint8_t color_index = attractors[ix][jx];
-        int len = snprintf(attractor_buffer + attractor_pos, 16, "%s", colors[color_index]);
-        attractor_pos += len;
+        
+
+        fwrite(colors[color_index], sizeof(char), strlen(colors[color_index]), attractors_file);
 
         // Write convergence data
         int conv = convergences[ix][jx];
-        len = snprintf(convergence_buffer + convergence_pos, 16, "%s", grayscale[conv]);
-        convergence_pos += len;
+
+        fwrite(grayscale[conv], sizeof(char), strlen(grayscale[conv]), convergence_file);
+        
+        
       }
-      attractor_buffer[attractor_pos] = '\n';
-      convergence_buffer[convergence_pos] = '\n';
-      fwrite(attractor_buffer, sizeof(char), attractor_pos + 1, attractors_file);
-      fwrite(convergence_buffer, sizeof(char), convergence_pos + 1, convergence_file);
+      fputc('\n', attractors_file);
+      fputc('\n', convergence_file);
       free(attractors[ix]);
       free(convergences[ix]);
     }
@@ -336,13 +270,10 @@ main_thrd_write(
 
 void initialize_roots() {
     for (int dimension = 1; dimension <= MAX_DEGREE; dimension++) {
-        // printf("Roots for x^%d - 1:\n", dimension);
         for (int k = 0; k < dimension; k++) {
             roots[dimension-1][k] = (float) cos(2 * M_PI * k / dimension) + I * sin(2 * M_PI * k / dimension);
             // Print each root
-            // printf("Root %d: %.6f + %.6fi\n", k, creal(roots[dimension-1][k]), cimag(roots[dimension-1][k]));
         }
-        printf("\n");
     }
 }
 
