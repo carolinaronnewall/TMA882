@@ -52,7 +52,7 @@ uint8_t ** convergences;
 
 
 const char *colors[11] = {
-    "0 51 102 ",      // Dark Blue
+	"0 51 102 ",      // Dark Blue
     "0 102 102 ",     // Teal
     "0 153 153 ",     // Dark Cyan
     "0 102 51 ",      // Dark Green
@@ -98,18 +98,16 @@ main_thrd(
    uint8_t *convergence = (uint8_t*) malloc(sz*sizeof(uint8_t));
 
     // Calculate the imaginary part of the complex plane, take the negative because we want to start at the top left corner
-    float imaginary_part = (-2.0f + (4.0f * (float)ix) / ((float)sz - 1)) * -1;
+    float imaginary_part = (-2.0f + (4.0f * ((float)ix + 0.5f)) / ((float)sz - 1)) * -1;
     
     for ( size_t cx = 0; cx < sz; ++cx ) {
       attractor[cx] = 10; // last index in color array
       convergence[cx] = 127;
-      float real_part = -2.0f + (4.0f * (float)cx) / ((float)sz - 1);
+      float real_part = -2.0f + (4.0f * ((float)cx + 0.5f)) / ((float)sz - 1);
       complex float z = real_part + imaginary_part * I;
 
       for (int conv = 0; conv < MAX_ITERATIONS; ++conv) {
-        if (fabs(creal(z)) > 1e5 || fabs(cimag(z)) > 1e5) {
-          attractor[cx] = 10; // last index in color array
-          convergence[cx] = conv;
+        if (fabs(creal(z)) > 1e10 || fabs(cimag(z)) > 1e10) {
           break;
         }
 
@@ -121,7 +119,7 @@ main_thrd(
           break;
         }
 
-        if (norm_squared <= (1 + 2e-6) && norm_squared >= (1 - 2e-6)) {
+        if (norm_squared <= (1 + 2e-3) && norm_squared >= (1 - 2e-3)) {
           
         
          
@@ -130,20 +128,22 @@ main_thrd(
               float dx = crealf(z) - crealf(root);
               float dy = cimagf(z) - cimagf(root);
               float distance_sq = dx * dx + dy * dy;
-              if (distance_sq < 1e-6) { // (1e-3)^2
+              if (distance_sq < 1e-6) { 
                 attractor[cx] = root_index;
                 convergence[cx] = conv;
                 break;
               }
             }
 
-          if (attractor[cx] != 10) {
+	}
+
+        if (attractor[cx] != 10) {
             break;
-          }
+        }
 
           
           
-        }
+        
 
         switch (d) {
           case 1:
@@ -399,5 +399,4 @@ int main(int argc, char *argv[]) {
   return 0;
 
 }
-
 
